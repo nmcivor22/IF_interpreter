@@ -1,0 +1,196 @@
+#include "storytokenizer.h"
+
+bool StoryTokenizer::hasNext() const
+{
+	return story.find(PASSAGE_START_TAG, pos) != string::npos;
+}
+
+PassageToken StoryTokenizer::nextPassage()
+{
+	unsigned int next = story.find(PASSAGE_START_TAG, pos);
+	unsigned int start = story.find(PASSAGE_START_TAG_CLOSE, next) + 1;
+	unsigned int end = story.find(PASSAGE_END_TAG, start);
+
+	if (next == string::npos || end == string::npos) //returns empty passage token
+		return PassageToken();
+	else //else return a passage token with the name attached to the individual passage
+	{
+		pos = end;
+		unsigned int namestart = story.find(PASSAGE_NAME_START, next) + PASSAGE_NAME_START.size();
+		unsigned int nameend = story.find(PASSAGE_NAME_END, namestart);
+		if (namestart == string::npos || nameend == string::npos)
+			return PassageToken(story.substr(start, end - start));
+		else
+			return PassageToken(story.substr(namestart, nameend - namestart), story.substr(start, end - start));
+	}
+}
+
+bool PassageTokenizer::hasNext() const
+{
+	return pos < pass.size();
+}
+
+SectionToken PassageTokenizer::nextSection()
+{
+	unsigned int start, end;
+	SectionToken ret;
+
+	if (pos >= pass.size())
+	{
+		lastsect = TEXT;
+		return ret;
+	}
+
+	//Handle blocks separately
+	start = pass.find(BLOCK_START, pos);
+	if ((lastsect == IF || lastsect == ELSEIF || lastsect == ELSE) && start != string::npos)
+	{
+		end = start + 1;
+		unsigned int level = 1;
+		while (level > 0 && end < pass.size())
+		{
+			if (pass.substr(end, BLOCK_START.size()) == BLOCK_START)
+				level++;
+			else if (pass.substr(end, BLOCK_START.size()) == BLOCK_END)
+				level--;
+			end++;
+		}
+
+		if (level == 0)
+			lastsect = BLOCK;
+		else
+			lastsect = TEXT; //Treat a bad block as text?
+		ret = SectionToken(pass.substr(start, end - start), BLOCK);
+		pos = end;
+		return ret;
+	}
+	else
+	{
+		unsigned int nextset = pass.find(SET_START, pos);
+		unsigned int nextgoto = pass.find(GOTO_START, pos);
+		unsigned int nextlink = pass.find(LINK_START, pos);
+		unsigned int nextif = pass.find(IF_START, pos);
+		unsigned int nextelseif = pass.find(ELSEIF_START, pos);
+		unsigned int nextelse = pass.find(ELSE_START, pos);
+
+		unsigned int nexttok = nextset;
+		if (nextgoto < nexttok)
+			nexttok = nextgoto;
+		if (nextgoto < nexttok)
+			nexttok = nextgoto;
+		if (nextlink < nexttok)
+			nexttok = nextlink;
+		if (nextif < nexttok)
+			nexttok = nextif;
+		if (nextelseif < nexttok)
+			nexttok = nextelseif;
+		if (nextelse < nexttok)
+			nexttok = nextelse;
+
+		end = string::npos;
+		lastsect = TEXT;
+		if (nexttok > pos)
+			end = nexttok;
+		else if (nexttok == nextlink)
+		{
+			end = pass.find(LINK_END, nextlink) + LINK_END.size();
+			lastsect = LINK;
+		}
+		else if (nexttok != string::npos)
+		{
+			end = pass.find(COMMAND_END, pos) + 1;
+			if (nexttok == nextgoto)
+				lastsect = GOTO;
+			else if (nexttok == nextset)
+				lastsect = SET;
+			else if (nexttok == nextif)
+				lastsect = IF;
+			else if (nexttok == nextelseif)
+				lastsect = ELSEIF;
+			else if (nexttok == nextelse)
+				lastsect = ELSE;
+			else
+				lastsect = TEXT;
+		}
+
+		if (end != string::npos)
+			ret = SectionToken(pass.substr(pos, end - pos), lastsect);
+		else
+			ret = SectionToken(pass.substr(pos), lastsect);
+		pos = end;
+		return ret;
+	}
+}
+
+//handle the linking, return key
+string SectionToken::setLinkText(string s1) {
+	if (type != LINK) 
+	{
+		return "";
+	}
+	else
+	{
+		string linkset1;
+		for (int i = 0; i < s1.size(); i++)
+		{
+			linkset1.push_back(s1.at(i));
+		}
+		int linkstart = linkset1.find(LINK_SEPARATOR);
+		int linkPrint = linkset1.find("[[");
+		int linkend = linkset1.find("]]");
+		if (linkstart >= 0)
+		{
+			cout << "here" << endl;
+			string printLINK = linkset1.substr(linkPrint + 2, linkstart - (linkPrint + 2));
+			string link = linkset1.substr(linkstart + 4, linkend - linkstart);
+			key = link;
+			return  printLINK;
+		}
+		else
+		{
+			string noSeparatorLink = linkset1.substr((linkPrint + 2), linkend - (linkPrint + 2));
+			key = noSeparatorLink;
+			return noSeparatorLink;
+		}
+	}
+}
+
+// handle the set command, return variable name and sets the bool.
+string SectionToken::variableName() {
+	if (type != SET) {
+		return "";
+	}
+	else {
+		string setVariable = text;
+		int setStart = setVariable.find("$");
+		if (setStart >= 0)
+		{
+			int setEnd = setVariable.find("to");
+			int endBool = setVariable.find(")");
+			string variableName = setVariable.substr(setStart + 1, (setEnd - 1) - setStart);
+			string boolCheck = setVariable.substr(setEnd + 3, endBool - (setEnd + 3));
+			if (boolCheck == "true")
+				boolValue = true;
+			else
+				boolValue = false;
+			return variableName; //change back to variable name
+		}
+	}
+}
+
+string SectionToken::getConditionalStatement() {
+	string conditional = text;
+	int setStart = conditional.find("$");
+	if (setStart >= 0)
+	{
+		int setEnd = conditional.find("is");
+		int endBool = conditional.find(")");
+		string conditionalName = conditional.substr(setStart + 1, (setEnd - 1) - setStart);
+		string boolval = conditional.substr(setEnd + 3, endBool - (setEnd + 3));
+		if (boolval == "true")
+			conditionalbool = true;
+		else
+			conditionalbool = false;
+		return conditionalName;
+	}
+}
