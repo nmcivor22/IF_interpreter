@@ -1,0 +1,232 @@
+#include <iostream>
+#include <string>
+#include <vector>
+#include <unordered_map>
+#include "storytokenizer.h"
+using namespace std;
+
+int main()
+{
+	string line, story;
+
+	getline(cin, line);
+	while (cin && line != "</html>")
+	{
+		story += line + '\n';
+		getline(cin, line);
+	}
+	vector <string> TotalNames;
+	vector <PassageToken> TotalPassages;
+	unordered_map<string, int> name_Map;
+	unordered_map<string, bool> variable_Map;
+
+	StoryTokenizer st(story);
+
+	int passIndex = 0;
+	while (st.hasNext())
+	{
+		TotalPassages.push_back(st.nextPassage());
+	}
+	StoryTokenizer st1(story);
+	while (st1.hasNext())
+	{
+		PassageToken ptok(st1.nextPassage());
+		name_Map.insert(make_pair(ptok.getName(), passIndex));
+		passIndex++;
+	}
+
+	bool linksRemaining = true;
+	int passageUp = 0;
+
+
+
+	while (linksRemaining)
+	{
+		vector<string> linker;
+		vector <string> Keys;
+		string variableNames;
+		string conditionalCheckName;
+		bool checker;
+		bool conditionCheckValue;
+		int blocker = 0;
+		string gotoJump;
+
+		bool gotoOrNah = false;
+		PassageTokenizer pt(TotalPassages.at(passageUp).getText());
+		int linkcount = 0;
+		int ifcounter = 0;
+		int elsecounter = 0;
+		int elseifcounter = 0;
+		int lastif = 0;
+		int lastELSEIF = 0;
+		int lastELSE = 0;
+
+		while (pt.hasNext())
+		{
+			SectionToken stok = pt.nextSection();
+
+			if (stok.getType() == LINK)
+			{
+				linker.push_back(stok.setLinkText(stok.getText()));
+				cout << " " << linker.at(linkcount) << " ";
+				linkcount++;
+				Keys.push_back(stok.getKey());
+			}
+			else if (stok.getType() == TEXT)
+			{
+				cout << stok.getText();
+			}
+
+			else if (stok.getType() == SET)
+			{
+				variableNames = stok.variableName();
+				if (variable_Map.find(variableNames) == variable_Map.end()) //key not found
+				{
+					variable_Map.insert(make_pair(variableNames, stok.getboolValue()));
+				}
+				else //key already exists, update the bool value
+				{
+					variable_Map.at(variableNames) = stok.getboolValue();
+				}
+			}
+			else if (stok.getType() == GOTO)
+			{
+
+				int gotoStart = stok.getText().find("&quot"); //finds start of goto
+				int gotoEnd = stok.getText().find("&quot", gotoStart + 1); //finds end of goto
+				gotoJump = stok.getText().substr(gotoStart + 6, gotoEnd - (gotoStart + 6));
+
+				passageUp = name_Map.at(gotoJump);
+				gotoOrNah = true;
+			}
+			else if (stok.getType() == IF)
+			{
+				//cout << "IF" << endl;
+				conditionalCheckName = stok.getConditionalStatement();
+				conditionCheckValue = stok.getConditionalBool();
+				checker = variable_Map.at(conditionalCheckName);
+				//cout << conditionalCheckName << ":  " << checker << endl;
+				if (checker == conditionCheckValue)
+				{
+					ifcounter = 1;
+				}
+				else
+				{
+					ifcounter = 0;
+				}
+			}
+			else if (stok.getType() == ELSEIF && lastif == 0 && ifcounter == 0)
+			{
+				//cout << "ELSEIF" << endl;
+				conditionalCheckName = stok.getConditionalStatement();
+				conditionCheckValue = stok.getConditionalBool();
+				checker = variable_Map.at(conditionalCheckName);
+				if (checker == conditionCheckValue)
+				{
+					elseifcounter = 1;
+				}
+				else
+				{
+					elseifcounter = 0;
+				}
+			}
+			else if (stok.getType() == ELSE && lastif == 0 && lastELSEIF == 0 && ifcounter == 0 && elseifcounter == 0)
+			{
+				elsecounter = 1;
+			}
+
+			else if (stok.getType() == BLOCK)
+			{
+				string total_Block = stok.getText(); //new string with block contents
+				string newString = total_Block.substr(1);
+				int blockend = total_Block.find("]");
+				int searchLink = total_Block.find(LINK_START);
+				int	searchGOTO = total_Block.find(GOTO_START);
+				int	searchIF = total_Block.find(IF_START);
+				int searchElseIf = total_Block.find(ELSEIF_START);
+				int	searchElse = total_Block.find(ELSE_START);
+
+				if (ifcounter == 1)
+				{
+					lastif = 1;
+					if (searchLink < 0 && searchGOTO < 0 && searchIF < 0 && searchElseIf < 0 && searchElse < 0) //only a block, NO commands found
+					{
+						string blockPrint = total_Block.substr(1, blockend - 1);
+						cout << blockPrint;
+						ifcounter = 0;
+					}
+					else
+					{
+						new (&pt) PassageTokenizer(newString);
+						ifcounter = 0;
+					}
+				}
+				else if (elseifcounter == 1)
+				{
+					lastELSEIF = 1;
+					if (searchLink < 0 && searchGOTO < 0 && searchIF < 0 && searchElseIf < 0 && searchElse < 0) //only a block, NO commands found
+					{
+						string blockPrint = total_Block.substr(1, blockend - 1);
+						cout << blockPrint;
+						elseifcounter = 0;
+					}
+
+					else
+					{
+						new (&pt) PassageTokenizer(newString);
+						elseifcounter = 0;
+					}
+				}
+				else if (elsecounter == 1)
+				{
+					lastELSE = 1;
+					if (searchLink < 0 && searchGOTO < 0 && searchIF < 0 && searchElseIf < 0 && searchElse < 0) //only a block, NO commands found
+					{
+
+						string blockPrint = total_Block.substr(1, blockend - 1);
+						cout << blockPrint;
+						elsecounter = 0;
+					}
+					else
+					{
+						new (&pt) PassageTokenizer(newString);
+						elsecounter = 0;
+					}
+				}
+			}
+		}
+		if (linkcount > 0 && gotoOrNah == false)
+		{
+			cout << endl;
+			for (int i = 0; i < linker.size(); i++)
+			{
+				cout << i + 1 << ". " << linker.at(i) << endl;
+			}
+			cout << "\n\nSelect an option (type the number, not words): \n";
+			int userLinkSelect;
+			cin >> userLinkSelect;
+			while (cin.fail() || ((userLinkSelect - 1) > linkcount) || (userLinkSelect - 1) < 0)
+			{
+				cin.clear();
+				cin.ignore();
+				cout << "invalid choice, try again: \n";
+				cin >> userLinkSelect;
+			}
+			string userKey = Keys.at(userLinkSelect - 1);
+			passageUp = name_Map.at(userKey);
+		}
+		else if (gotoOrNah == true)
+		{
+			passageUp = passageUp;
+		}
+
+		if (linkcount == 0)
+		{
+			cout << "\n\n\nThe Story has been Read!\n";
+			linksRemaining = false;
+		}
+
+	}
+	system("pause");
+	return 0;
+}
